@@ -14,6 +14,15 @@ state *state_new(){
     // (this is a trick from <string.h>)
     memset(sta,0,sizeof(state));
 
+    //:: MAX_ENEMIES/BULLETS ahora son la capacidad maxima inical de los arreglos dinámicos.
+    //:: La memoria de los dos arreglos depende de sus respectivas capacidades máximas del momento.
+    sta->enemies_capacity = MAX_ENEMIES;
+    sta->enemies = malloc(sizeof(enemy)*(sta->enemies_capacity));
+
+    sta->bullets_capacity = MAX_BULLETS;
+    sta->bullets = malloc(sizeof(bullet)*(sta->bullets_capacity));
+    
+
     // We put the player in the center of the top-left cell.
     sta->pla.ent.x = TILE_SIZE/2;
     sta->pla.ent.y = TILE_SIZE/2;
@@ -22,6 +31,60 @@ state *state_new(){
 
     // Retrieve pointer to the state
     return sta;
+}
+//:: Definicion de funcion new_enemy
+enemy* new_enemy(state *sta,float posx, float posy){
+    //:: Si la cantidad de enemigos es igual a la capacidad, duplicamos la capacidad.
+    if(sta->n_enemies == sta->enemies_capacity){
+        sta->enemies_capacity *= 2;
+        sta->enemies = realloc(sta->enemies,sizeof(enemy)*(sta->enemies_capacity));
+    }
+
+    // The new enemy will be in the next unused position of the enemies array
+    enemy *new_enemy = &sta->enemies[sta->n_enemies];
+    sta->n_enemies++;
+
+    // Initialize all new enemy fields to 0
+    memset(new_enemy,0,sizeof(enemy));
+
+    // Put the new enemy at the center of the chosen cell
+    new_enemy->ent.x = (posx + 0.5)*TILE_SIZE;
+    new_enemy->ent.y = (posy + 0.5)*TILE_SIZE;
+    // Pick an enemy tipe and set variables accordingly
+    int brute = rand()%4==0; // brute has 1/4 chance.
+    if(brute){
+        new_enemy->kind   = BRUTE;
+        new_enemy->ent.hp = BRUTE_HP;
+        new_enemy->ent.rad = BRUTE_RAD;
+    }else{
+        new_enemy->kind   = MINION;
+        new_enemy->ent.hp = MINION_HP;
+        new_enemy->ent.rad = MINION_RAD;
+    }
+    return new_enemy;
+}
+//:: Definicion de bullet_new
+bullet* bullet_new(state *sta){
+    //:: Si la cantidad de balas es igual a la capacidad, duplicamos la capacidad.
+    if(sta->n_bullets == sta->bullets_capacity){
+        sta->bullets_capacity *= 2;
+        sta->bullets = realloc(sta->bullets,sizeof(bullet)*(sta->bullets_capacity));
+    }
+    // The new bullet will be in the next unused position of the bullets array
+    bullet *new_bullet = &sta->bullets[sta->n_bullets];
+    sta->n_bullets += 1;
+    // Initialize all bullet fields to 0
+    memset(new_bullet,0,sizeof(bullet));
+    // Start the bullet on the player's position
+    new_bullet->ent.x      = sta->pla.ent.x;
+    new_bullet->ent.y      = sta->pla.ent.y;
+    // Bullet speed is set to the aiming angle
+    new_bullet->ent.vx     =  BULLET_SPEED*cos(sta->aim_angle);
+    new_bullet->ent.vy     = -BULLET_SPEED*sin(sta->aim_angle);
+    //
+    new_bullet->ent.rad    = BULLET_RAD;
+    new_bullet->ent.hp     = BULLET_DMG;
+    return new_bullet;
 }
 
 void state_update(level *lvl, state *sta){
@@ -54,22 +117,7 @@ void state_update(level *lvl, state *sta){
         // Reset the player cooldown to a positive value so that he can't shoot for that amount of frames
         sta->pla.cooldown = PLAYER_COOLDOWN;
         // Ensure that the new bullet won't be created if that would overflow the bullets array
-        if(sta->n_bullets<MAX_BULLETS){
-            // The new bullet will be in the next unused position of the bullets array
-            bullet *new_bullet = &sta->bullets[sta->n_bullets];
-            sta->n_bullets += 1;
-            // Initialize all bullet fields to 0
-            memset(new_bullet,0,sizeof(bullet));
-            // Start the bullet on the player's position
-            new_bullet->ent.x      = sta->pla.ent.x;
-            new_bullet->ent.y      = sta->pla.ent.y;
-            // Bullet speed is set to the aiming angle
-            new_bullet->ent.vx     =  BULLET_SPEED*cos(sta->aim_angle);
-            new_bullet->ent.vy     = -BULLET_SPEED*sin(sta->aim_angle);
-            //
-            new_bullet->ent.rad    = BULLET_RAD;
-            new_bullet->ent.hp     = BULLET_DMG;
-        }
+        bullet_new(sta);
     }
 
     // == Check bullet-enemy collisions
@@ -85,9 +133,11 @@ void state_update(level *lvl, state *sta){
     }
 
     // == Update entities
+    
     // Update player
     entity_physics(lvl,&sta->pla.ent);
     if(sta->pla.ent.hp<=0) sta->pla.ent.dead=1;
+
     // Update enemies
     for(int i=0;i<sta->n_enemies;i++){
         entity_physics(lvl,&sta->enemies[i].ent);
@@ -100,7 +150,6 @@ void state_update(level *lvl, state *sta){
         // Kill bullet if it is colliding with a wall
         if(col) sta->bullets[i].ent.dead = 1;
     }
-
 
     // == Delete dead entities
     {
@@ -131,37 +180,43 @@ void state_update(level *lvl, state *sta){
 
 }
 
+
+//:: Se editó bastante para acomodar el respawn de los enemigos.
 void state_populate_random(level *lvl, state *sta, int n_enemies){
-    assert(n_enemies<=MAX_ENEMIES);
+    //:: Inspirado en el codigo de colision, usamos estas variables para calcular el radio de no_respawn.
+    int posx;
+    int posy;
+    float delta_x;
+    float delta_y;
+    float delta_mag;
+    int enemy_spawn_radius;
+    //:: Definí dos tamaños del radio, en caso de ser un mapa diminuto, respawnean lejos del jugador
+    //:: pero no todos apegados a la pared. En caso de ser grande respawnean cerca del borde de la pantalla.
+    if (((lvl->size_x + lvl->size_y) / 2) <= 10){
+        enemy_spawn_radius = 4;
+    }
+    else { 
+        enemy_spawn_radius = 7;
+    }
+
+    float plax = sta->pla.ent.x / TILE_SIZE;
+    float play = sta->pla.ent.y / TILE_SIZE;
+    //:: Se crean enemigos hasta alcanzar el valor deseado (n_enemies).
     while(sta->n_enemies<n_enemies){
         // Until an empty cell is found, Las Vegas algorithm approach.
         while(1){
-            int posx = rand()%lvl->size_x;
-            int posy = rand()%lvl->size_y;
-            // Check if the cell is empty
-            if(level_get(lvl,posx,posy)=='.'){
 
-                // The new enemy will be in the next unused position of the enemies array
-                enemy *new_enemy = &sta->enemies[sta->n_enemies];
-                sta->n_enemies++;
+            posx = rand()%lvl->size_x;
+            posy = rand()%lvl->size_y;
+            
+            delta_x = plax - posx;
+            delta_y = play - posy;
+            //:: Calculamos distancia entre posible enemigo y jugador.
+            delta_mag = sqrt(delta_x*delta_x+delta_y*delta_y);
+            //:: De ser un lugar disponible y suficientemente lejos, crea al enemigo.
+            if(level_get(lvl,posx,posy)=='.' && delta_mag > enemy_spawn_radius){
 
-                // Initialize all new enemy fields to 0
-                memset(new_enemy,0,sizeof(enemy));
-
-                // Put the new enemy at the center of the chosen cell
-                new_enemy->ent.x = (posx+0.5)*TILE_SIZE;
-                new_enemy->ent.y = (posy+0.5)*TILE_SIZE;
-                // Pick an enemy tipe and set variables accordingly
-                int brute = rand()%4==0; // brute has 1/4 chance.
-                if(brute){
-                    new_enemy->kind   = BRUTE;
-                    new_enemy->ent.hp = BRUTE_HP;
-                    new_enemy->ent.rad = BRUTE_RAD;
-                }else{
-                    new_enemy->kind   = MINION;
-                    new_enemy->ent.hp = MINION_HP;
-                    new_enemy->ent.rad = MINION_RAD;
-                }
+                new_enemy(sta,posx,posy);
                 // Break while(1) as the operation was successful
                 break;
             }
@@ -169,6 +224,15 @@ void state_populate_random(level *lvl, state *sta, int n_enemies){
     }
 }
 
+void bullets_free(state *sta){
+    free(sta->bullets);
+}
+
+void enemies_free(state *sta){
+    free(sta->enemies);
+}
+
 void state_free(state *sta){
     free(sta);
 }
+

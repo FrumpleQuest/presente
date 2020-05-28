@@ -42,8 +42,10 @@ typedef struct {
 
 // ==== STATE DEFINITION
 
-#define MAX_ENEMIES 128
-#define MAX_BULLETS 128
+//:: Para mostrar que la memoria es dinámica, usemos capacidades iniciales pequeñas ;).
+
+#define MAX_ENEMIES 1
+#define MAX_BULLETS 1
 
 #define N_BUTTONS 5
 
@@ -52,13 +54,15 @@ typedef struct {
     // The player
     player pla;
 
-    // An array of enemies:
+    //::enemies_capacity mide la capacidad maxima de enemigos del momento; enemies ahora es dinámico.
     int n_enemies;
-    enemy enemies[MAX_ENEMIES];
+    int enemies_capacity;
+    enemy *enemies;
 
-    // An array of bullets:
+    //::bullets_capacity mide la capacidad maxima balas del momento; bullets ahora es dinámico.
     int n_bullets;
-    bullet bullets[MAX_BULLETS];
+    int bullets_capacity;
+    bullet *bullets;
 
     // State of the controls, should be updated on each step.
     int button_state[N_BUTTONS];
@@ -66,8 +70,13 @@ typedef struct {
 
 } state;
 
-// Creates an empty state, allocating memory for it.
+// Creates an empty state, allocating meamory for it.
 state *state_new();
+
+//:: Funciones que crean nuevo enemigo y bala.
+
+enemy *enemy_new();
+bullet *bullet_new();
 
 // Updates the state of the game to the next frame.
 void state_update(level *lvl, state *sta);
@@ -78,6 +87,9 @@ void state_populate_random(level *lvl, state *sta, int n_enemies);
 // Deletes a state and the memory it requires.
 void state_free(state *sta);
 
+void bullets_free(state *sta);
+
+void enemies_free(state *sta);
 
 
 #endif

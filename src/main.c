@@ -6,26 +6,29 @@
 #include "draw.h"
 #include "state.h"
 
+#define INITIAL_SPAWN_RATE 40
+
 int main(int argc, char const *argv[]){
 
     // Initialization
     const int screen_width = 800;
-    const int screen_height = 600;
+    const int screen_height = 600;  
 
     InitWindow(screen_width,screen_height,"Presente - the game");
     SetTargetFPS(60);
 
     // Initialize level and fill randomly
-    level *lvl = level_new(50,40);
+    level *lvl = level_new(20,20);
     level_fill_random(lvl,6);
 
-    // Initialize state (and add enemies)
+    // Initialize state (now add enemies is at the bottom of the while loop, for respawn purposes)
     state *sta = state_new();
-    state_populate_random(lvl,sta,40);
 
-    // Main loop
+    // Main loo
+    int FrameCounter = 0;
+    int Enemy_spawn_rate = INITIAL_SPAWN_RATE;
     while(!WindowShouldClose()){
-
+        
         // Update input depending if keys are pressed or not
         sta->button_state[0] = IsKeyDown(KEY_D);
         sta->button_state[1] = IsKeyDown(KEY_W);
@@ -44,19 +47,28 @@ int main(int argc, char const *argv[]){
         BeginDrawing();
 
             ClearBackground(RAYWHITE);
-
             draw_state(lvl, sta);
 
             DrawText("Presente profe!",190,200,20,LIGHTGRAY);
 
         EndDrawing();
 
+        //:: Respawnean los monstruos cada 500 frames, ademas, cada vez que respawnean
+        //:: aumenta la cantidad de enemigos que aparecen.
+        FrameCounter += 1;
+        if (FrameCounter % 500 == 1){
+            state_populate_random(lvl,sta,Enemy_spawn_rate);
+            Enemy_spawn_rate += INITIAL_SPAWN_RATE;
+        }
+
     }
 
     // Closer window
     CloseWindow();
 
-    // Free memory
+    //:: Liberamos memoria de específico a general (enemies < state).
+    bullets_free(sta);
+    enemies_free(sta);
     state_free(sta);
     level_free(lvl);
 
